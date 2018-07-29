@@ -2,11 +2,14 @@ pragma solidity ^0.4.24;
 
 library RockPaperScissorsUtils {
 
-    string constant ROCK = "rock";
-    string constant PAPER = "paper";
-    string constant SCISSORS = "scissors";
+    uint constant ROCK = 0;
+    uint constant PAPER = 1;
+    uint constant SCISSORS = 2;
 
-    function defeats(string winner, string looser) internal pure returns(bool) {
+    function defeats(uint winner, uint looser) internal pure returns(bool) {
+        require(isValid(winner), "winner is not a valid move");
+        require(isValid(looser), "looser is not a valid move");
+
         // rock beats scissors
         if (isRock(winner) && isScissor(looser)) return true;
         // scissors beats paper
@@ -17,30 +20,26 @@ library RockPaperScissorsUtils {
         return false;
     }
 
-    function isTiedWith(string winner, string looser) internal pure returns(bool) {
+    function isTiedWith(uint winner, uint looser) internal pure returns(bool) {
         require(isValid(winner), "Winner must be a valid move");
 
-        return equals(winner, looser);
+        return winner == looser;
     }
 
-    function isValid(string move) internal pure returns(bool) {
-        return isRock(move) || isPaper(move) || isScissor(move);
+    function isValid(uint move) internal pure returns(bool) {
+        return move >= 0 && move <= 2;
     }
 
-    function isRock(string move) internal pure returns(bool) {
-        return equals(move, ROCK);
+    function isRock(uint move) internal pure returns(bool) {
+        return move == ROCK;
     }
 
-    function isPaper(string move) internal pure returns(bool) {
-        return equals(move, PAPER);
+    function isPaper(uint move) internal pure returns(bool) {
+        return move == PAPER;
     }
 
-    function isScissor(string move) internal pure returns(bool) {
-        return equals(move, SCISSORS);
+    function isScissor(uint move) internal pure returns(bool) {
+        return move == SCISSORS;
     }
 
-    function equals(string str1, string str2) private pure returns(bool) {
-        //return StringUtils.equal(move, SCISSORS);
-        return true;
-    }
 }

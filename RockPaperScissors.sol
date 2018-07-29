@@ -11,7 +11,7 @@ import "./RockPaperScissorsUtils.sol";
  */
 contract RockPaperScissors is GameTokens {
 
-    using RockPaperScissorsUtils for string;
+    using RockPaperScissorsUtils for uint;
 
     uint constant CREATED = 0;
     uint constant JOIN_BY_ONE = 1;
@@ -23,7 +23,7 @@ contract RockPaperScissors is GameTokens {
     struct Player {
         address id;
         bytes32 promise;
-        string move;
+        uint move;
     }
 
     struct Game {
@@ -57,22 +57,22 @@ contract RockPaperScissors is GameTokens {
         return currentGameId;
     }
 
-    function joinGame(uint gameId, uint anti, bytes32 promise) public returns (bool readyToPlay) {
+    function joinGame(uint gameId, bytes32 promise) public returns (bool readyToPlay) {
         Game storage game = games[gameId];
 
-        require(game.ante == anti, "Anti is not correct");
         require(promise != bytes32(0), "Promise move must not be 0x0");
         require(!usedPromises[promise], "Promise already used");
         require(game.status < JOIN_BY_TWO, "Too many players");
-        require(balances[msg.sender] >= anti, "Not enough tokens for ante");
+        require(balances[msg.sender] >= game.ante, "Not enough tokens for ante");
         require(game.alpha.id != msg.sender, "Player is already enrolled");
         require(game.omega.id != msg.sender, "Player is already enrolled");
 
-        balances[msg.sender] -= anti;
-        game.funds += anti;
+        balances[msg.sender] -= game.ante;
+        game.funds += game.ante;
         game.status++;
+        usedPromises[promise] = true;
 
-        emit LogGameJoined(gameId, anti, promise);
+        emit LogGameJoined(gameId, game.ante, promise);
 
         if (game.alpha.id == address(0)) {
             game.alpha.id = msg.sender;
@@ -85,7 +85,7 @@ contract RockPaperScissors is GameTokens {
         }
     }
 
-    function commitMove(uint gameId, string password, string decodedPromise) public returns(bool done) {
+    function commitMove(uint gameId, string password, uint decodedPromise) public returns(bool done) {
         Game storage game = games[gameId];
 
         require(decodedPromise.isValid(), "Not a valid move");
@@ -108,7 +108,6 @@ contract RockPaperScissors is GameTokens {
         }
 
         require(promise == decode(msg.sender, password, decodedPromise), "Password is incorrect");
-        usedPromises[promise] = true;
 
         return game.status == MOVE_SUBMITTED_BY_TWO;
     }
@@ -116,8 +115,8 @@ contract RockPaperScissors is GameTokens {
     function closeGame(uint gameId) public {
         require(games[gameId].status == MOVE_SUBMITTED_BY_TWO, "Not enough players have moved");
 
-        string storage alphaMove = games[gameId].alpha.move;
-        string storage omegaMove = games[gameId].omega.move;
+        uint alphaMove = games[gameId].alpha.move;
+        uint omegaMove = games[gameId].omega.move;
         uint winnings = games[gameId].funds;
 
         games[gameId].funds = 0;
@@ -137,7 +136,7 @@ contract RockPaperScissors is GameTokens {
 
     //TODO allow exiting before match is over, with a potential refund or forfeit of funds
 
-    function decode(address owner, string password, string decodedPromise) public pure returns(bytes32) {
-        return sha256(abi.encodePacked(owner, password, decodedPromise));
+    function decode(address owner, string password, uint decodedPromise) public view returns(bytes32) {
+        return sha256(abi.encodePacked(address(this), owner, password, decodedPromise));
     }
 }

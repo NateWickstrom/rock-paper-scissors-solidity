@@ -37,7 +37,4 @@ contract GameTokens {
         require(msg.sender.send(balance), "Failed to transfer funds");
     }
 
-    function balance(address account) public view returns(uint) {
-        return balances[account];
-    }
 }
