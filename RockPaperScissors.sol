@@ -178,6 +178,27 @@ contract RockPaperScissors is GameTokens {
         }
     }
 
+    /**
+    * @dev Leave the game early if no players joined and get you ante back.
+    *
+    * @param gameId     the id player use to identify a specific game.
+    */
+    function leaveGame(uint gameId) public {
+        Game storage game = games[gameId];
+
+        require(game.status == GameStatus.CREATED, "A player has already joined");
+        require(game.alpha.id == msg.sender, "only the creator can do this");
+
+        balances[msg.sender] += games[gameId].funds;
+        games[gameId].funds = 0;
+        games[gameId].status = GameStatus.ENDED;
+
+        emit LogLeaveGame(gameId);
+    }
+
+    // TODO add timeout for players to collect winnings,
+    // if opponent fails to collect winnings in a timely mannor
+
     function decode(address owner, string password, uint decodedMove) public view returns(bytes32) {
         return sha256(abi.encodePacked(address(this), owner, password, decodedMove));
     }
