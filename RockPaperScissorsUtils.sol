@@ -2,9 +2,9 @@ pragma solidity ^0.4.24;
 
 library RockPaperScissorsUtils {
 
-    uint constant ROCK = 0;
-    uint constant PAPER = 1;
-    uint constant SCISSORS = 2;
+    uint constant ROCK = 1;
+    uint constant PAPER = 2;
+    uint constant SCISSORS = 3;
 
     function defeats(uint winner, uint looser) internal pure returns(bool) {
         require(isValid(winner), "winner is not a valid move");

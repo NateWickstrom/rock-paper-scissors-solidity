@@ -6,121 +6,165 @@ import "./RockPaperScissorsUtils.sol";
 /**
  * @title RockPaperScissors
  *
- * @dev The RockPaperScissors contract allows the owner to deposit funds and the receiver
- * to receive them as long as they supply the correct passcodes.
+ * @dev The RockPaperScissors contract allows two people to player the game
+ * and make bets on it.
  */
 contract RockPaperScissors is GameTokens {
 
     using RockPaperScissorsUtils for uint;
 
-    uint constant CREATED = 0;
-    uint constant JOIN_BY_ONE = 1;
-    uint constant JOIN_BY_TWO = 2;
-    uint constant MOVE_SUBMITTED_BY_ONE = 3;
-    uint constant MOVE_SUBMITTED_BY_TWO = 4;
-    uint constant ENDED = 5;
+    enum GameStatus {
+        // one player (alpha) has create the game
+        CREATED,
+        // both players have submitted (encrypted) moves
+        MOVED,
+        // both players have decoded their moves (and the game is over)
+        REVELED,
+        // game is over and fund have been transfered
+        ENDED
+    }
 
     struct Player {
         address id;
-        bytes32 promise;
+        bytes32 encryptedMove;
         uint move;
     }
 
     struct Game {
         Player alpha;
         Player omega;
-        uint ante;
         uint funds;
-        uint status;
+        GameStatus status;
     }
 
-    event LogGameCreated(uint indexed gameId, uint ante);
-    event LogGameJoined(uint indexed gameId, uint ante, bytes32 promise);
-    event LogMoveCommitted(uint indexed gameId, string password);
+    event LogGameCreated(uint indexed gameId, address indexed player, uint ante, bytes32 encryptedMove);
+    event LogGameJoined(uint indexed gameId, address indexed player, bytes32 encryptedMove);
+    event LogMoveRevealed(uint indexed gameId, address indexed player, string password, uint move);
+    event LogLeaveGame(uint indexed gameId);
     event LogGameClosed(uint indexed gameId);
 
     mapping(uint => Game) public games;
-    mapping(bytes32 => bool) public usedPromises;
+    mapping(bytes32 => bool) public usedEncryptedMove;
 
     uint nextGameId;
 
-    function createGame(uint ante) public returns(uint gameId) {
-        require(ante >= 0, "Ante must be greater than 0");
+    /**
+    * @dev create a new Rock/Paper/Scissors game and transfer the senders ante
+    * to the pot.
+    *
+    * @param ante           amount of tokens each player provide to join th game.
+    * @param encryptedMove  encriped hash for moved.
+    *
+    * @return gameId        the id player use to identify a specific game.
+    */
+    function createGame(uint ante, bytes32 encryptedMove) public returns(uint gameId) {
+        require(ante >= 0, "Ante must not be negative");
+        require(usedEncryptedMove != bytes32(0), "Encrypted move must not be 0x0");
+        require(!usedEncryptedMove[encryptedMove], "Encrypted move already used");
+        require(balances[msg.sender] >= ante, "Not enough tokens for ante");
 
+        // create a new game
         uint currentGameId = nextGameId;
         Game storage game = games[currentGameId];
-        game.ante = ante;
         nextGameId++;
+        game.status = GameStatus.CREATED;
 
-        emit LogGameCreated(currentGameId, ante);
+        // add the sender to the game
+        usedEncryptedMove[promise] = true;
+        game.alpha.id = msg.sender;
+        game.alpha.encryptedMove = encryptedMove;
+
+        // transfer funds to game account
+        balances[msg.sender] -= ante;
+        game.funds += ante;
+
+        emit LogGameCreated(currentGameId, msg.sender, ante, encryptedMove);
 
         return currentGameId;
     }
 
-    function joinGame(uint gameId, bytes32 promise) public returns (bool readyToPlay) {
+    /**
+    * @dev join a new Rock/Paper/Scissors game and transfer the senders ante
+    * to the pot.
+    *
+    * @param gameId         the id player use to identify a specific game.
+    * @param encryptedMove  encriped hash for moved.
+    */
+    function joinGame(uint gameId, bytes32 encryptedMove) public {
         Game storage game = games[gameId];
 
-        require(promise != bytes32(0), "Promise move must not be 0x0");
-        require(!usedPromises[promise], "Promise already used");
-        require(game.status < JOIN_BY_TWO, "Too many players");
-        require(balances[msg.sender] >= game.ante, "Not enough tokens for ante");
-        require(game.alpha.id != msg.sender, "Player is already enrolled");
-        require(game.omega.id != msg.sender, "Player is already enrolled");
+        require(usedEncryptedMove != bytes32(0), "Encrypted move must not be 0x0");
+        require(!usedEncryptedMove[encryptedMove], "Encrypted move already used");
+        require(balances[msg.sender] >= game.funds, "Not enough tokens for ante");
+        require(game.status == GameStatus.CREATED, "moves are not permitted");
+        require(game.alpha.id != msg.sender, "Stop playing with yourself");
 
-        balances[msg.sender] -= game.ante;
-        game.funds += game.ante;
-        game.status++;
-        usedPromises[promise] = true;
+        // add the sender to the game
+        usedEncryptedMove[encryptedMove] = true;
+        game.omega.id = msg.sender;
+        game.omega.promise = promise;
 
-        emit LogGameJoined(gameId, game.ante, promise);
+        // transfer funds to game account
+        balances[msg.sender] -= game.funds;
+        game.funds += game.funds;
 
-        if (game.alpha.id == address(0)) {
-            game.alpha.id = msg.sender;
-            game.alpha.promise = promise;
-            return false;
-        } else {
-            game.omega.id = msg.sender;
-            game.omega.promise = promise;
-            return true;
-        }
+        // update game state
+        game.status = GameStatus.MOVED;
+
+        emit LogGameJoined(gameId, msg.sender, promise);
     }
 
-    function commitMove(uint gameId, string password, uint decodedPromise) public returns(bool done) {
+    /**
+    * @dev reveal a players move in a Rock/Paper/Scissors game.
+    *
+    * @param gameId         the id player use to identify a specific game.
+    * @param password       password used to decript the encoded move into the decodedMove.
+    * @param decodedMove    unencrypted move used to verify.
+    */
+    function revealMove(uint gameId, string password, uint decodedMove) public returns(bool done) {
         Game storage game = games[gameId];
 
-        require(decodedPromise.isValid(), "Not a valid move");
-        require(game.status >= JOIN_BY_TWO, "Not enough players have joined");
-        require(game.status < MOVE_SUBMITTED_BY_TWO, "Already submitted moves");
+        require(decodedMove.isValid(), "Not a valid move");
+        require(game.status == GameStatus.MOVED, "you cant reveal moves in this state");
         require(game.alpha.id == msg.sender
             || game.omega.id == msg.sender, "Only joined players can do this");
 
         bytes32 promise;
-        game.status++;
-
-        emit LogMoveCommitted(gameId, password);
 
         if (game.alpha.id == msg.sender) {
             promise = game.alpha.promise;
-            game.alpha.move = decodedPromise;
+            game.alpha.move = decodedMove;
         } else {
             promise = game.omega.promise;
-            game.omega.move = decodedPromise;
+            game.omega.move = decodedMove;
         }
 
-        require(promise == decode(msg.sender, password, decodedPromise), "Password is incorrect");
+        require(promise == decode(msg.sender, password, decodedMove), "Password is incorrect");
 
-        return game.status == MOVE_SUBMITTED_BY_TWO;
+        emit LogMoveRevealed(gameId, msg.sender, password, decodedMove);
+
+        if (game.alpha.move.isValid() && game.alpha.move.isValid()) {
+            // update game state
+            game.status = GameStatus.REVELED;
+            return true;
+        }
+        return false;
     }
 
+    /**
+    * @dev Close the game by transfering winnings to appropriate players.
+    *
+    * @param gameId     the id player use to identify a specific game.
+    */
     function closeGame(uint gameId) public {
-        require(games[gameId].status == MOVE_SUBMITTED_BY_TWO, "Not enough players have moved");
+        require(games[gameId].status == GameStatus.REVELED, "Not enough players have moved");
 
         uint alphaMove = games[gameId].alpha.move;
         uint omegaMove = games[gameId].omega.move;
         uint winnings = games[gameId].funds;
 
         games[gameId].funds = 0;
-        games[gameId].status = ENDED;
+        games[gameId].status = GameStatus.ENDED;
 
         emit LogGameClosed(gameId);
 
@@ -134,9 +178,7 @@ contract RockPaperScissors is GameTokens {
         }
     }
 
-    //TODO allow exiting before match is over, with a potential refund or forfeit of funds
-
-    function decode(address owner, string password, uint decodedPromise) public view returns(bytes32) {
-        return sha256(abi.encodePacked(address(this), owner, password, decodedPromise));
+    function decode(address owner, string password, uint decodedMove) public view returns(bytes32) {
+        return sha256(abi.encodePacked(address(this), owner, password, decodedMove));
     }
 }
